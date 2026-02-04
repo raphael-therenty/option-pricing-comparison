@@ -28,12 +28,11 @@ This README keeps your original content while expanding installation, usage, dev
 ## Table of contents
 
 - Features
-- Quickstart (install & run)
-- Usage (script + Streamlit)
+- How each model works
+- Quickstart — install & run
+- Usage examples
 - Project structure
-- Development (tests, linting)
 - Notes, assumptions and limitations
-- Contributing
 
 ## Features
 
@@ -44,7 +43,7 @@ This README keeps your original content while expanding installation, usage, dev
 - Streamlit interactive app to compare pricing methods and visualize results
 - Unit tests with `pytest`
 
-## How each model works (simple explanation)
+## How each model works
 
 Below are brief, plain-language descriptions of each pricing method included in this project, with an intuitive explanation of how they work and their main trade-offs.
 
