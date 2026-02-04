@@ -153,29 +153,29 @@ Use the Streamlit app to compare methods interactively. The app purposely expose
 
 ## Project structure
 
-option-pricing-2025/
-├─ .gitignore
-├─ README.md
-├─ requirements.txt
-├─ main.py
-├─ sripts/
-│  ├─ __init__.py
-│  ├─ viz.py               
-│  ├─ greeks.py           # helper greeks (bump or analytic)
-│  ├─ utils.py            # helpers: payoff, input validation, rng
-│  └─ models/
-│     ├─ __init__.py
-│     ├─ binomial.py         # CRR binomial tree
-│     ├─ fd.py               # Finite Difference (Crank-Nicolson)
-│     ├─ mc.py               # Monte Carlo (plain, antithetic, control variate)           
-│     └─ black_scholes.py    # Black-Scholes-Merton closed form + greeks
-│
-├─ streamlit_app.py      # interactive Streamlit UI
-├─ run.py                # small CLI to price & compare methods
-├─ tests/
-│  ├─ test_bs.py
-│  ├─ test_binomial.py
-│  └─ test_mc.py
+	option-pricing-2025/
+	├─ .gitignore
+	├─ README.md
+	├─ requirements.txt
+	├─ main.py
+	├─ sripts/
+	│  ├─ __init__.py
+	│  ├─ viz.py               
+	│  ├─ greeks.py           # helper greeks (bump or analytic)
+	│  ├─ utils.py            # helpers: payoff, input validation, rng
+	│  └─ models/
+	│     ├─ __init__.py
+	│     ├─ binomial.py         # CRR binomial tree
+	│     ├─ fd.py               # Finite Difference (Crank-Nicolson)
+	│     ├─ mc.py               # Monte Carlo (plain, antithetic, control variate)           
+	│     └─ black_scholes.py    # Black-Scholes-Merton closed form + greeks
+	│
+	├─ streamlit_app.py      # interactive Streamlit UI
+	├─ run.py                # small CLI to price & compare methods
+	├─ tests/
+	│  ├─ test_bs.py
+	│  ├─ test_binomial.py
+	│  └─ test_mc.py
 
 ## Notes, assumptions and limitations
 
