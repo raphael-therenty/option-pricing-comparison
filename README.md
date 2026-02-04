@@ -125,18 +125,6 @@ If you want a simple script interface, use the CLI helper:
 ```powershell
 python run.py --help
 ```
-## Installation
-
-Recommended: create a virtual environment.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate        # macOS / Linux
-.venv\Scripts\activate           # Windows
-
-pip install -r requirements.txt
-
-```
 
 ## Usage examples
 
