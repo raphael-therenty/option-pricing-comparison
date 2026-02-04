@@ -11,7 +11,6 @@ Vanilla option pricing library & interactive demo (Black-Scholes-Merton, Binomia
 - Streamlit interactive app to compare methods, visualize PnL and greeks.
 - Unit tests with `pytest`.
 
-# Option Pricing — Overview & Comparison (2025)
 
 Vanilla option pricing library and interactive demo. This project implements multiple numerical and analytical methods for European vanilla options and provides tools to compare their accuracy and performance.
 
