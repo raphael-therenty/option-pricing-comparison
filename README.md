@@ -139,7 +139,7 @@ Use the Streamlit app to compare methods interactively. The app purposely expose
 
 ## Project structure
 
-	option-pricing-2025/
+	OptionPricer/
 	├─ .gitignore
 	├─ README.md
 	├─ requirements.txt
