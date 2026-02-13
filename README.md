@@ -11,7 +11,6 @@ Vanilla option pricing library & interactive demo (Black-Scholes-Merton, Binomia
 - Streamlit interactive app to compare methods, visualize PnL and greeks.
 - Unit tests with `pytest`.
 
-# Option Pricing — Overview & Comparison (2025)
 
 Vanilla option pricing library and interactive demo. This project implements multiple numerical and analytical methods for European vanilla options and provides tools to compare their accuracy and performance.
 
@@ -28,12 +27,11 @@ This README keeps your original content while expanding installation, usage, dev
 ## Table of contents
 
 - Features
-- Quickstart (install & run)
-- Usage (script + Streamlit)
+- How each model works
+- Quickstart — install & run
+- Usage examples
 - Project structure
-- Development (tests, linting)
 - Notes, assumptions and limitations
-- Contributing
 
 ## Features
 
@@ -44,7 +42,7 @@ This README keeps your original content while expanding installation, usage, dev
 - Streamlit interactive app to compare pricing methods and visualize results
 - Unit tests with `pytest`
 
-## How each model works (simple explanation)
+## How each model works
 
 Below are brief, plain-language descriptions of each pricing method included in this project, with an intuitive explanation of how they work and their main trade-offs.
 
@@ -125,18 +123,6 @@ If you want a simple script interface, use the CLI helper:
 ```powershell
 python run.py --help
 ```
-## Installation
-
-Recommended: create a virtual environment.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate        # macOS / Linux
-.venv\Scripts\activate           # Windows
-
-pip install -r requirements.txt
-
-```
 
 ## Usage examples
 
@@ -153,29 +139,29 @@ Use the Streamlit app to compare methods interactively. The app purposely expose
 
 ## Project structure
 
-option-pricing-2025/
-├─ .gitignore
-├─ README.md
-├─ requirements.txt
-├─ main.py
-├─ sripts/
-│  ├─ __init__.py
-│  ├─ viz.py               
-│  ├─ greeks.py           # helper greeks (bump or analytic)
-│  ├─ utils.py            # helpers: payoff, input validation, rng
-│  └─ models/
-│     ├─ __init__.py
-│     ├─ binomial.py         # CRR binomial tree
-│     ├─ fd.py               # Finite Difference (Crank-Nicolson)
-│     ├─ mc.py               # Monte Carlo (plain, antithetic, control variate)           
-│     └─ black_scholes.py    # Black-Scholes-Merton closed form + greeks
-│
-├─ streamlit_app.py      # interactive Streamlit UI
-├─ run.py                # small CLI to price & compare methods
-├─ tests/
-│  ├─ test_bs.py
-│  ├─ test_binomial.py
-│  └─ test_mc.py
+	OptionPricer/
+	├─ .gitignore
+	├─ README.md
+	├─ requirements.txt
+	├─ main.py
+	├─ sripts/
+	│  ├─ __init__.py
+	│  ├─ viz.py               
+	│  ├─ greeks.py           # helper greeks (bump or analytic)
+	│  ├─ utils.py            # helpers: payoff, input validation, rng
+	│  └─ models/
+	│     ├─ __init__.py
+	│     ├─ binomial.py         # CRR binomial tree
+	│     ├─ fd.py               # Finite Difference (Crank-Nicolson)
+	│     ├─ mc.py               # Monte Carlo (plain, antithetic, control variate)           
+	│     └─ black_scholes.py    # Black-Scholes-Merton closed form + greeks
+	│
+	├─ streamlit_app.py      # interactive Streamlit UI
+	├─ run.py                # small CLI to price & compare methods
+	├─ tests/
+	│  ├─ test_bs.py
+	│  ├─ test_binomial.py
+	│  └─ test_mc.py
 
 ## Notes, assumptions and limitations
 
