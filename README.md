@@ -2,27 +2,6 @@
 
 Vanilla option pricing library (Black-Scholes-Merton, Binomial CRR, Finite Difference (Crank-Nicolson), Monte-Carlo with Antithetic & Control Variate), with an interactive streamlit app.
 
-## Features
-
-- Black-Scholes closed-form pricing + analytical Greeks.
-- CRR binomial tree pricing (European).
-- Finite Difference (Crank-Nicolson) solver for European options.
-- Monte Carlo pricing with Antithetic variates and Control variate (discounted terminal price).
-- Streamlit interactive app to compare methods, visualize PnL and greeks.
-- Unit tests with `pytest`.
-
-
-Vanilla option pricing library and interactive demo. This project implements multiple numerical and analytical methods for European vanilla options and provides tools to compare their accuracy and performance.
-
-Key methods included:
-
-- Black-Scholes-Merton (closed-form) with analytical Greeks
-- Cox-Ross-Rubinstein (CRR) Binomial tree (European)
-- Finite Difference (Crank–Nicolson) PDE solver (European)
-- Monte Carlo simulation with antithetic variates and control variate
-- Small Streamlit app to interactively compare methods and visualize P&L and Greeks
-
-This README keeps your original content while expanding installation, usage, development, and testing sections so contributors can get started quickly.
 
 ## Table of contents
 
