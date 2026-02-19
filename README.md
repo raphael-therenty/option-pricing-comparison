@@ -1,6 +1,6 @@
 # Option Pricing: Overview & Comparison 2025
 
-Vanilla option pricing library & interactive demo (Black-Scholes-Merton, Binomial CRR, Finite Difference (Crank-Nicolson), Monte-Carlo with Antithetic & Control Variate).
+Vanilla option pricing library (Black-Scholes-Merton, Binomial CRR, Finite Difference (Crank-Nicolson), Monte-Carlo with Antithetic & Control Variate), with an interactive streamlit app.
 
 ## Features
 
