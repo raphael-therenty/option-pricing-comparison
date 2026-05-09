@@ -1,370 +1,282 @@
-import sys
-import os
-import streamlit as st
+"""
+streamlit_app.py
+─────────────────
+Interactive Streamlit application for European vanilla option pricing.
+
+Sections
+1. Sidebar         — market & contract parameters + per-method controls.
+2. Prices table    — side-by-side comparison of all selected methods.
+3. Greeks table    — first-order Greeks at the current spot.
+4. Greek charts    — Delta, Gamma, Vega, Theta, Rho plotted over a spot range.
+5. PnL chart       — long-option PnL profile for a selected method.
+
+Run with:
+    streamlit run streamlit_app.py
+"""
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import streamlit as st
 
-# Ensure project root is on sys.path so `from src...` works when Streamlit runs from app/
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-# Import library exports
-from scripts import (
-    bsm_price,
-    bsm_greeks,
-    binomial_price,
-    fd_price_cn,
-    mc_price,
-    finite_diff_greeks,
+from pricer import (
+    BlackScholesOption,
+    BinomialOption,
+    FiniteDifferenceOption,
+    MonteCarloOption,
+    bump_greeks,
 )
-from scripts.viz import pnl_from_pricing_method
+from pricer.viz import compute_pnl, plot_pnl
+
+# ── page config ───────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="European Option Pricer", layout="wide")
-st.title("European Option Pricing: Overview & Comparison")
-st.write("Created by Raphael Therenty")
+st.title("European Option Pricer")
+st.caption("Created by Raphael Therenty Fradet")
 
-# ------------------------
-# Sidebar - market params
-# ------------------------
+# ── sidebar — market parameters ───────────────────────────────────────────────
+
 st.sidebar.header("Market & Option Parameters")
-S = st.sidebar.number_input("Spot (S)", value=100.0, format="%.4f")
-K = st.sidebar.number_input("Strike (K)", value=100.0, format="%.4f")
-r = st.sidebar.number_input("Risk-free rate r (annual)", value=0.01, format="%.4f")
-q = st.sidebar.number_input("Dividend yield q (annual)", value=0.0, format="%.4f")
-sigma = st.sidebar.number_input("Volatility sigma (annual)", value=0.2, format="%.4f")
-T = st.sidebar.number_input("Time to expiry T (years)", value=0.5, format="%.4f")
+S           = st.sidebar.number_input("Spot (S)",                value=100.0,  format="%.4f")
+K           = st.sidebar.number_input("Strike (K)",              value=100.0,  format="%.4f")
+r           = st.sidebar.number_input("Risk-free rate r (annual)", value=0.01, format="%.4f")
+q           = st.sidebar.number_input("Dividend yield q (annual)", value=0.0,  format="%.4f")
+sigma       = st.sidebar.number_input("Volatility σ (annual)",   value=0.2,    format="%.4f")
+T           = st.sidebar.number_input("Time to expiry T (years)", value=0.5,   format="%.4f")
 option_type = st.sidebar.selectbox("Option type", ["call", "put"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("Method controls")
-methods_available = ["Black-Scholes", "Binomial (CRR)", "Finite Difference (CN)", "Monte Carlo"]
-selected_methods = st.sidebar.multiselect("Methods to include", options=methods_available, default=methods_available)
 
-n_steps = st.sidebar.slider("Binomial / FD steps (grid size)", min_value=50, max_value=2000, value=200, step=50)
-n_paths = st.sidebar.number_input("MC paths (table)", value=50000, step=1000)
-plot_mc_with_low_paths = st.sidebar.checkbox("Include MC in greek charts (use small paths)", value=False)
-mc_greek_paths = st.sidebar.number_input("MC paths (greeks plots)", min_value=1000, max_value=20000, value=3000, step=1000)
-antithetic = st.sidebar.checkbox("Use antithetic (MC)", value=True)
-control_variate = st.sidebar.checkbox("Use control variate (MC)", value=True)
-seed = st.sidebar.number_input("Random seed (MC)", value=42, step=1)
+ALL_METHODS = ["Black-Scholes", "Binomial (CRR)", "Finite Difference (CN)", "Monte Carlo"]
+selected    = st.sidebar.multiselect("Methods to display", ALL_METHODS, default=ALL_METHODS)
 
-st.sidebar.markdown("---")
-st.sidebar.header("Visualization")
-s_min_mult = st.sidebar.slider("S range lower multiplier", 0.2, 1.0, 0.5)
-s_max_mult = st.sidebar.slider("S range upper multiplier", 1.0, 2.0, 1.5)
-n_plot_points = st.sidebar.slider("Points for greek plots", 25, 201, 101, step=2)
+n_steps     = st.sidebar.slider("Binomial / FD grid steps", 50, 2000, 200, step=50)
+n_paths     = st.sidebar.number_input("MC paths (pricing table)", value=50_000, step=1_000)
+antithetic  = st.sidebar.checkbox("Antithetic variates (MC)", value=True)
+cv          = st.sidebar.checkbox("Control variate (MC)", value=True)
+seed        = st.sidebar.number_input("Random seed (MC)", value=42, step=1)
 
-# ------------------------
-# Cached helpers
-# ------------------------
-@st.cache_data(show_spinner=False)
-def get_price_bsm(S_, K_, r_, q_, sigma_, T_, option_type_):
-    return bsm_price(S_, K_, r_, q_, sigma_, T_, option_type=option_type_)
+show_mc_greeks  = st.sidebar.checkbox("Include MC in Greek charts (slow)", value=False)
+mc_greek_paths  = st.sidebar.number_input("MC paths (Greek charts)", min_value=1_000, max_value=20_000, value=3_000, step=1_000)
+
+# fixed chart range constants (±50% around current spot, 101 points)
+S_MIN_MULT    = 0.5
+S_MAX_MULT    = 1.5
+N_PLOT_POINTS = 101
+
+# ── cached pricers ────────────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner=False)
-def get_price_binomial(S_, K_, r_, q_, sigma_, T_, steps_, option_type_):
-    return binomial_price(S_, K_, r_, q_, sigma_, T_, steps=steps_, option_type=option_type_)
+def price_bsm(S, K, r, q, sigma, T, otype):
+    return BlackScholesOption(S, K, r, q, sigma, T, otype).price()
 
 @st.cache_data(show_spinner=False)
-def get_price_fd(S_, K_, r_, q_, sigma_, T_, M_, N_, option_type_):
-    return fd_price_cn(S_, K_, r_, q_, sigma_, T_, s_max_multiplier=3.0, M=M_, N=N_, option_type=option_type_)
+def price_binomial(S, K, r, q, sigma, T, otype, steps):
+    return BinomialOption(S, K, r, q, sigma, T, otype).price(steps=steps)
 
 @st.cache_data(show_spinner=False)
-def get_price_mc(S_, K_, r_, q_, sigma_, T_, option_type_, n_paths_, antithetic_, control_variate_, seed_):
-    p, stderr = mc_price(S_, K_, r_, q_, sigma_, T_, option_type=option_type_, n_paths=n_paths_,
-                         antithetic=antithetic_, control_variate=control_variate_, seed=seed_)
-    return p, stderr
+def price_fd(S, K, r, q, sigma, T, otype, M, N):
+    return FiniteDifferenceOption(S, K, r, q, sigma, T, otype).price(s_max_multiplier=3.0, M=M, N=N)
 
-# ------------------------
-# Price table 
-# ------------------------
-st.header("Prices comparison")
+@st.cache_data(show_spinner=False)
+def price_mc(S, K, r, q, sigma, T, otype, n_paths, antithetic, cv, seed):
+    opt = MonteCarloOption(S, K, r, q, sigma, T, otype)
+    return opt.price(n_paths=n_paths, antithetic=antithetic, control_variate=cv, seed=seed)
 
-prices = []
-if "Black-Scholes" in selected_methods:
-    p = get_price_bsm(S, K, r, q, sigma, T, option_type)
-    prices.append({"Method": "Black-Scholes", "Price": p, "Note": "Analytic"})
+# ── helper: build a scalar price callable for each method ─────────────────────
 
-if "Binomial (CRR)" in selected_methods:
-    p = get_price_binomial(S, K, r, q, sigma, T, n_steps, option_type)
-    prices.append({"Method": f"Binomial (steps={n_steps})", "Price": p, "Note": "CRR tree"})
-
-if "Finite Difference (CN)" in selected_methods:
-    try:
-        p = get_price_fd(S, K, r, q, sigma, T, M_=n_steps, N_=max(10, n_steps//2), option_type_=option_type)
-        prices.append({"Method": f"FiniteDiff CN (grid={n_steps})", "Price": p, "Note": "Crank-Nicolson"})
-    except Exception as e:
-        prices.append({"Method": f"FiniteDiff CN (grid={n_steps})", "Price": np.nan, "Note": f"Error: {e}"})
-
-if "Monte Carlo" in selected_methods:
-    try:
-        p, stderr = get_price_mc(S, K, r, q, sigma, T, option_type, n_paths, antithetic, control_variate, seed)
-        prices.append({"Method": f"Monte Carlo (paths={n_paths})", "Price": p, "Note": f"stderr≈{stderr:.4f}"})
-    except Exception as e:
-        prices.append({"Method": f"Monte Carlo (paths={n_paths})", "Price": np.nan, "Note": f"Error: {e}"})
-
-prices_df = pd.DataFrame(prices).set_index("Method")
-
-# Styling: center headers and cells, 4 decimals
-styler = prices_df.style.format({"Price": "{:.4f}", "Note": "{}"}) \
-    .set_table_styles([
-        {'selector': 'th', 'props': [('text-align', 'center')]},
-        {'selector': 'td', 'props': [('text-align', 'center'), ('vertical-align', 'middle')]},
-    ])
-
-# Put centered by placing in middle column of a wider layout
-c1, c2, c3 = st.columns([1, 4, 1])
-with c2:
-    st.dataframe(styler, use_container_width=True)
-
-st.markdown("---")
-
-# ------------------------
-# Greeks table at current S
-# ------------------------
-st.header("Greeks at current spot (S)")
-greeks_rows = []
-
-# analytic BSM greeks
-if "Black-Scholes" in selected_methods:
-    try:
-        g = bsm_greeks(S, K, r, q, sigma, T, option_type=option_type)
-        greeks_rows.append({"Method": "Black-Scholes", **g})
-    except Exception:
-        greeks_rows.append({"Method": "Black-Scholes", "delta": np.nan, "gamma": np.nan, "vega": np.nan, "theta": np.nan, "rho": np.nan})
-
-# numeric greeks helper builders
-def build_price_func_for_method(method_name):
-    if method_name == "Binomial":
-        def price_fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
-            return binomial_price(S_val, K, r, q, sigma, T, steps=n_steps, option_type=option_type)
-        return price_fn
-    if method_name == "FiniteDiff":
-        def price_fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
-            return fd_price_cn(S_val, K, r, q, sigma, T, s_max_multiplier=3.0, M=n_steps, N=max(10, n_steps//2), option_type=option_type)
-        return price_fn
-    if method_name == "MonteCarlo":
-        def price_fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
-            p, _ = mc_price(S_val, K, r, q, sigma, T, option_type=option_type, n_paths=max(1000, int(mc_greek_paths)), antithetic=antithetic, control_variate=control_variate, seed=seed)
+def make_price_fn(method: str, steps: int, n_paths: int, antithetic: bool, cv: bool, seed: int):
+    """Return a f(S_val, K, r, q, sigma, T, option_type) → float for bump_greeks."""
+    if method == "Black-Scholes":
+        def fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
+            return BlackScholesOption(S_val, K, r, q, sigma, T, option_type).price()
+    elif method == "Binomial (CRR)":
+        def fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
+            return BinomialOption(S_val, K, r, q, sigma, T, option_type).price(steps=steps)
+    elif method == "Finite Difference (CN)":
+        def fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
+            return FiniteDifferenceOption(S_val, K, r, q, sigma, T, option_type).price(
+                s_max_multiplier=3.0, M=steps, N=max(10, steps // 2))
+    else:  # Monte Carlo
+        def fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type):
+            opt = MonteCarloOption(S_val, K, r, q, sigma, T, option_type)
+            p, _ = opt.price(n_paths=n_paths, antithetic=antithetic, control_variate=cv, seed=seed)
             return p
-        return price_fn
-    return None
 
-# compute numeric greeks for chosen methods
-if "Binomial (CRR)" in selected_methods:
-    price_fn = build_price_func_for_method("Binomial")
+    # wrap so bump_greeks can call fn(S, sigma=..., T=..., r=..., option_type=...)
+    def wrapped(S_val, sigma, T, r, option_type=option_type, **_):
+        return fn(S_val, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
+    return wrapped
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 1 — Prices
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.header("Prices comparison")
+rows = []
+if "Black-Scholes" in selected:
+    rows.append({"Method": "Black-Scholes", "Price": price_bsm(S, K, r, q, sigma, T, option_type), "Note": "Analytic"})
+if "Binomial (CRR)" in selected:
+    rows.append({"Method": f"Binomial (steps={n_steps})", "Price": price_binomial(S, K, r, q, sigma, T, option_type, n_steps), "Note": "CRR tree"})
+if "Finite Difference (CN)" in selected:
     try:
-        gnum = finite_diff_greeks(price_fn, S, bump=1e-3, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
-    except Exception:
-        gnum = {"delta": np.nan, "gamma": np.nan, "vega": np.nan, "theta": np.nan, "rho": np.nan}
-    greeks_rows.append({"Method": f"Binomial (steps={n_steps})", **gnum})
-
-if "Finite Difference (CN)" in selected_methods:
-    price_fn = build_price_func_for_method("FiniteDiff")
+        p = price_fd(S, K, r, q, sigma, T, option_type, n_steps, max(10, n_steps // 2))
+        rows.append({"Method": f"Finite Diff CN (grid={n_steps})", "Price": p, "Note": "Crank-Nicolson"})
+    except Exception as e:
+        rows.append({"Method": f"Finite Diff CN (grid={n_steps})", "Price": np.nan, "Note": str(e)})
+if "Monte Carlo" in selected:
     try:
-        gnum = finite_diff_greeks(price_fn, S, bump=1e-3, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
-    except Exception:
-        gnum = {"delta": np.nan, "gamma": np.nan, "vega": np.nan, "theta": np.nan, "rho": np.nan}
-    greeks_rows.append({"Method": f"FiniteDiff CN (grid={n_steps})", **gnum})
+        p, stderr = price_mc(S, K, r, q, sigma, T, option_type, int(n_paths), antithetic, cv, int(seed))
+        rows.append({"Method": f"Monte Carlo (paths={int(n_paths)})", "Price": p, "Note": f"stderr≈{stderr:.4f}"})
+    except Exception as e:
+        rows.append({"Method": f"Monte Carlo (paths={int(n_paths)})", "Price": np.nan, "Note": str(e)})
 
-if "Monte Carlo" in selected_methods:
-    price_fn = build_price_func_for_method("MonteCarlo")
-    try:
-        gnum = finite_diff_greeks(price_fn, S, bump=1e-2, K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
-    except Exception:
-        gnum = {"delta": np.nan, "gamma": np.nan, "vega": np.nan, "theta": np.nan, "rho": np.nan}
-    greeks_rows.append({"Method": f"Monte Carlo (approx)", **gnum})
-
-greeks_df = pd.DataFrame(greeks_rows).set_index("Method")
-
-# format to 4 decimals and center cells
-greeks_styler = greeks_df.style.format("{:.4f}") \
-    .set_table_styles([
-        {'selector': 'th', 'props': [('text-align', 'center')]},
-        {'selector': 'td', 'props': [('text-align', 'center'), ('vertical-align', 'middle')]},
-    ])
-
-g1, g2, g3 = st.columns([1, 4, 1])
-with g2:
-    st.dataframe(greeks_styler, use_container_width=True)
+df_prices = pd.DataFrame(rows).set_index("Method")
+_, col_mid, _ = st.columns([1, 4, 1])
+with col_mid:
+    st.dataframe(
+        df_prices.style
+            .format({"Price": "{:.4f}"})
+            .set_table_styles([
+                {"selector": "th", "props": [("text-align", "center")]},
+                {"selector": "td", "props": [("text-align", "center")]},
+            ]),
+        use_container_width=True,
+    )
 
 st.markdown("---")
 
-# ------------------------
-# Greek charts + PnL plot
-# ------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 2 — Greeks at current spot
+# ─────────────────────────────────────────────────────────────────────────────
+
+st.header("Greeks at current spot")
+greek_rows = []
+GREEK_COLS = ["delta", "gamma", "vega", "theta", "rho"]
+
+if "Black-Scholes" in selected:
+    g = BlackScholesOption(S, K, r, q, sigma, T, option_type).greeks()
+    greek_rows.append({"Method": "Black-Scholes", **g})
+
+for method in ["Binomial (CRR)", "Finite Difference (CN)", "Monte Carlo"]:
+    if method not in selected:
+        continue
+    mc_p = int(mc_greek_paths) if method == "Monte Carlo" else int(n_paths)
+    bump  = 1e-2 if method == "Monte Carlo" else 1e-3
+    fn    = make_price_fn(method, n_steps, mc_p, antithetic, cv, int(seed))
+    try:
+        g = bump_greeks(fn, S, sigma=sigma, T=T, r=r)
+    except Exception:
+        g = {k: np.nan for k in GREEK_COLS}
+    greek_rows.append({"Method": method, **g})
+
+df_greeks = pd.DataFrame(greek_rows).set_index("Method")
+_, gcol, _ = st.columns([1, 4, 1])
+with gcol:
+    st.dataframe(
+        df_greeks.style
+            .format("{:.4f}")
+            .set_table_styles([
+                {"selector": "th", "props": [("text-align", "center")]},
+                {"selector": "td", "props": [("text-align", "center")]},
+            ]),
+        use_container_width=True,
+    )
+
+st.markdown("---")
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 3 — Greek charts + PnL
+# ─────────────────────────────────────────────────────────────────────────────
+
 st.header("Greeks and PnL")
 
-# Prepare S_range and methods to plot
-S_low = S * float(s_min_mult)
-S_high = S * float(s_max_mult)
-S_range = np.linspace(S_low, S_high, int(n_plot_points))
+S_range     = np.linspace(S * S_MIN_MULT, S * S_MAX_MULT, N_PLOT_POINTS)
 
-methods_for_plots = []
-if "Black-Scholes" in selected_methods: methods_for_plots.append("Black-Scholes")
-if "Binomial (CRR)" in selected_methods: methods_for_plots.append("Binomial")
-if "Finite Difference (CN)" in selected_methods: methods_for_plots.append("FiniteDiff")
-if ("Monte Carlo" in selected_methods) and plot_mc_with_low_paths: methods_for_plots.append("MonteCarlo")
+# Determine which methods to include in the Greek plots
+plot_methods = [m for m in selected if m != "Monte Carlo"]
+if "Monte Carlo" in selected and show_mc_greeks:
+    plot_methods.append("Monte Carlo")
 
-greek_names = ["delta", "gamma", "vega", "theta", "rho"]
-
-# accumulate arrays in dict-of-dicts
-accum = {gn: {} for gn in greek_names}
-
-# compute series (progress)
+# Accumulate Greek series: accum[greek_name][method_label] = np.ndarray
+accum = {g: {} for g in GREEK_COLS}
 progress = st.progress(0)
-total = len(methods_for_plots)
-count = 0
-for method in methods_for_plots:
-    count += 1
-    progress.progress(count / max(1, total))
+for idx, method in enumerate(plot_methods):
+    progress.progress((idx + 1) / max(len(plot_methods), 1))
+    mc_p  = int(mc_greek_paths)
+    bump  = 1e-2 if method == "Monte Carlo" else 1e-3
+    fn    = make_price_fn(method, n_steps, mc_p, antithetic, cv, int(seed))
+    label = method
+
     if method == "Black-Scholes":
-        values_by_greek = {gn: [] for gn in greek_names}
         for s_val in S_range:
-            g = bsm_greeks(s_val, K, r, q, sigma, T, option_type=option_type)
-            for gn in greek_names:
-                values_by_greek[gn].append(g.get(gn, np.nan))
-        for gn in greek_names:
-            accum[gn]["Black-Scholes"] = np.array(values_by_greek[gn])
-    elif method == "Binomial":
-        price_fn = build_price_func_for_method("Binomial")
-        values_by_greek = {gn: [] for gn in greek_names}
+            g = BlackScholesOption(s_val, K, r, q, sigma, T, option_type).greeks()
+            for gn in GREEK_COLS:
+                accum[gn].setdefault(label, []).append(g.get(gn, np.nan))
+    else:
         for s_val in S_range:
             try:
-                gnum = finite_diff_greeks(price_fn, s_val, bump=max(1e-3, s_val * 1e-4), K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
+                g = bump_greeks(fn, s_val, sigma=sigma, T=T, r=r, bump=max(bump, s_val * 1e-4))
             except Exception:
-                gnum = {g: np.nan for g in greek_names}
-            for gn in greek_names:
-                values_by_greek[gn].append(gnum.get(gn, np.nan))
-        for gn in greek_names:
-            accum[gn][f"Binomial (steps={n_steps})"] = np.array(values_by_greek[gn])
-    elif method == "FiniteDiff":
-        price_fn = build_price_func_for_method("FiniteDiff")
-        values_by_greek = {gn: [] for gn in greek_names}
-        for s_val in S_range:
-            try:
-                gnum = finite_diff_greeks(price_fn, s_val, bump=max(1e-3, s_val * 1e-4), K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
-            except Exception:
-                gnum = {g: np.nan for g in greek_names}
-            for gn in greek_names:
-                values_by_greek[gn].append(gnum.get(gn, np.nan))
-        for gn in greek_names:
-            accum[gn][f"FiniteDiff CN (grid={n_steps})"] = np.array(values_by_greek[gn])
-    elif method == "MonteCarlo":
-        price_fn = build_price_func_for_method("MonteCarlo")
-        values_by_greek = {gn: [] for gn in greek_names}
-        for s_val in S_range:
-            try:
-                gnum = finite_diff_greeks(price_fn, s_val, bump=max(1e-2, s_val * 1e-3), K=K, r=r, q=q, sigma=sigma, T=T, option_type=option_type)
-            except Exception:
-                gnum = {g: np.nan for g in greek_names}
-            for gn in greek_names:
-                values_by_greek[gn].append(gnum.get(gn, np.nan))
-        for gn in greek_names:
-            accum[gn][f"Monte Carlo (paths~{int(mc_greek_paths)})"] = np.array(values_by_greek[gn])
+                g = {gn: np.nan for gn in GREEK_COLS}
+            for gn in GREEK_COLS:
+                accum[gn].setdefault(label, []).append(g.get(gn, np.nan))
+
+    for gn in GREEK_COLS:
+        if label in accum[gn]:
+            accum[gn][label] = np.array(accum[gn][label])
 
 progress.empty()
 
-# Create a 3x2 grid layout: two rows, each with 3 columns
-row1_cols = st.columns(3)
-row2_cols = st.columns(3)
-
-# Choose figure size larger/wider than before for more readability
+# ── render a 3-column grid: row1 = delta/gamma/vega, row2 = theta/rho/pnl ────
 figsize = (5.0, 3.2)
 
-# First row: delta, gamma, vega
-for i, name in enumerate(greek_names[:3]):
-    col = row1_cols[i]
-    df = pd.DataFrame(accum[name], index=S_range) if accum[name] else pd.DataFrame()
+def greek_fig(name: str) -> plt.Figure:
     fig, ax = plt.subplots(figsize=figsize)
-    if df.empty:
-        ax.text(0.5, 0.5, f"No data for {name}", ha="center", va="center")
+    data = accum.get(name, {})
+    if not data:
+        ax.text(0.5, 0.5, f"No data for {name}", ha="center", va="center", transform=ax.transAxes)
     else:
-        for c in df.columns:
-            ax.plot(S_range, df[c], linewidth=1.6, label=c)
+        for label, vals in data.items():
+            ax.plot(S_range, vals, linewidth=1.6, label=label)
         ax.set_title(name.capitalize(), fontsize=11)
-        ax.tick_params(axis='x', labelsize=9)
-        ax.tick_params(axis='y', labelsize=9)
         ax.grid(True, linewidth=0.5)
-        ax.legend(fontsize=7, loc='best')
+        ax.tick_params(labelsize=9)
+        ax.legend(fontsize=7)
     plt.tight_layout()
+    return fig
+
+row1 = st.columns(3)
+row2 = st.columns(3)
+
+for col, name in zip(row1, ["delta", "gamma", "vega"]):
     with col:
-        st.markdown(f"<div style='text-align:center;font-weight:600'>{name.capitalize()}</div>", unsafe_allow_html=True)
-        st.pyplot(fig)
+        st.pyplot(greek_fig(name))
 
-# Second row: theta, rho, PnL
-# theta
-name = greek_names[3]
-col = row2_cols[0]
-df = pd.DataFrame(accum[name], index=S_range) if accum[name] else pd.DataFrame()
-fig, ax = plt.subplots(figsize=figsize)
-if df.empty:
-    ax.text(0.5, 0.5, f"No data for {name}", ha="center", va="center")
-else:
-    for c in df.columns:
-        ax.plot(S_range, df[c], linewidth=1.6, label=c)
-    ax.set_title(name.capitalize(), fontsize=11)
-    ax.tick_params(axis='x', labelsize=9)
-    ax.tick_params(axis='y', labelsize=9)
-    ax.grid(True, linewidth=0.5)
-    ax.legend(fontsize=7, loc='best')
-plt.tight_layout()
-with col:
-    st.markdown(f"<div style='text-align:center;font-weight:600'>{name.capitalize()}</div>", unsafe_allow_html=True)
-    st.pyplot(fig)
+for col, name in zip(row2[:2], ["theta", "rho"]):
+    with col:
+        st.pyplot(greek_fig(name))
 
-# rho
-name = greek_names[4]
-col = row2_cols[1]
-df = pd.DataFrame(accum[name], index=S_range) if accum[name] else pd.DataFrame()
-fig, ax = plt.subplots(figsize=figsize)
-if df.empty:
-    ax.text(0.5, 0.5, f"No data for {name}", ha="center", va="center")
-else:
-    for c in df.columns:
-        ax.plot(S_range, df[c], linewidth=1.6, label=c)
-    ax.set_title(name.capitalize(), fontsize=11)
-    ax.tick_params(axis='x', labelsize=9)
-    ax.tick_params(axis='y', labelsize=9)
-    ax.grid(True, linewidth=0.5)
-    ax.legend(fontsize=7, loc='best')
-plt.tight_layout()
-with col:
-    st.markdown(f"<div style='text-align:center;font-weight:600'>{name.capitalize()}</div>", unsafe_allow_html=True)
-    st.pyplot(fig)
+# ── PnL chart in the last slot — uses BSM (or first selected method) ─────────
+with row2[2]:
+    pnl_method = selected[0] if selected else "Black-Scholes"
 
-# PnL in last slot (row2_cols[2])
-col = row2_cols[2]
-# PnL method selection small (keeps same key so UI stable)
-method_for_pnl = st.selectbox("Method for PnL plot", selected_methods if selected_methods else methods_available, key="pnl_method_placement")
-def pricer_wrapper(s, K=K, r=r, q=q, sigma=sigma, T=T, method=method_for_pnl, option_type=option_type):
-    if method == "Black-Scholes":
-        return bsm_price(s, K, r, q, sigma, T, option_type=option_type)
-    elif method.startswith("Binomial"):
-        return binomial_price(s, K, r, q, sigma, T, steps=n_steps, option_type=option_type)
-    elif method.startswith("FiniteDiff"):
-        return fd_price_cn(s, K, r, q, sigma, T, M=n_steps, N=max(10, n_steps//2), option_type=option_type)
-    else:
-        p, _ = mc_price(s, K, r, q, sigma, T, option_type=option_type, n_paths=max(2000,int(n_paths//10)), antithetic=antithetic, control_variate=control_variate, seed=seed)
+    def pnl_price_fn(s_val):
+        if pnl_method == "Black-Scholes":
+            return BlackScholesOption(s_val, K, r, q, sigma, T, option_type).price()
+        if pnl_method == "Binomial (CRR)":
+            return BinomialOption(s_val, K, r, q, sigma, T, option_type).price(steps=n_steps)
+        if pnl_method == "Finite Difference (CN)":
+            return FiniteDifferenceOption(s_val, K, r, q, sigma, T, option_type).price(
+                s_max_multiplier=3.0, M=n_steps, N=max(10, n_steps // 2))
+        opt = MonteCarloOption(s_val, K, r, q, sigma, T, option_type)
+        p, _ = opt.price(n_paths=max(2_000, int(n_paths // 10)), antithetic=antithetic,
+                         control_variate=cv, seed=int(seed))
         return p
 
-S_range_payoff, pnl = pnl_from_pricing_method(pricer_wrapper, S, K, r, q, sigma, T,
-                                              method_kwargs={"option_type": option_type},
-                                              s_min_mult=s_min_mult, s_max_mult=s_max_mult, n=200)
-fig, ax = plt.subplots(figsize=figsize)
-ax.plot(S_range_payoff, pnl, linewidth=1.8)
-ax.set_title(f"PnL ({method_for_pnl})", fontsize=11)
-ax.tick_params(axis='x', labelsize=9)
-ax.tick_params(axis='y', labelsize=9)
-ax.grid(True, linewidth=0.5)
-ax.axvline(K, color="k", linestyle="--", linewidth=0.8)
-plt.tight_layout()
-with col:
-    st.markdown("<div style='text-align:center;font-weight:600'>PnL</div>", unsafe_allow_html=True)
-    st.pyplot(fig)
+    S_pnl, pnl_vals = compute_pnl(pnl_price_fn, S, s_min_mult=S_MIN_MULT, s_max_mult=S_MAX_MULT, n=200)
+    st.pyplot(plot_pnl(S_pnl, pnl_vals, strike=K, title=f"PnL ({pnl_method})"))
 
 st.markdown("---")
-st.header("Notes")
-st.write("""
-- If plotting becomes slow, reduce `n_plot_points`, disable Monte Carlo greeks, or lower `n_steps`.
-""")
+st.caption("Tip: disable MC Greeks if charts are slow to render.")
