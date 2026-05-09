@@ -2,7 +2,7 @@
 
 An interactive Streamlit application for pricing European vanilla options using four numerical and analytical methods, with Greeks visualisation and PnL profiles.
 
-**[Open the app](https://your-app-url.streamlit.app)**
+**[Open the app](https://raphael-therenty-option-pricing-comparison-streamlit-app-mg3yxy.streamlit.app)**
 
 ---
 
