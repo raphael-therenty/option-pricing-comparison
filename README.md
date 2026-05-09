@@ -2,8 +2,7 @@
 
 An interactive Streamlit application for pricing European vanilla options using four numerical and analytical methods, with Greeks visualisation and PnL profiles.
 
-**[▶ Open the app](https://your-app-url.streamlit.app)**
-*(replace with your Streamlit Cloud deployment URL)*
+**[Open the app](https://your-app-url.streamlit.app)**
 
 ---
 
@@ -11,7 +10,6 @@ An interactive Streamlit application for pricing European vanilla options using 
 
 - [Features](#features)
 - [Project structure](#project-structure)
-- [Quickstart](#quickstart)
 - [Methods explained](#methods-explained)
   - [Black-Scholes-Merton](#1-black-scholes-merton)
   - [Binomial Tree (CRR)](#2-binomial-tree-crr)
@@ -53,27 +51,6 @@ european-option-pricer/
 ├── requirements.txt
 ├── pytest.ini
 └── README.md
-```
-
----
-
-## Quickstart
-
-```bash
-# 1. Clone and create a virtual environment
-git clone https://github.com/your-username/european-option-pricer.git
-cd european-option-pricer
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Run tests
-pytest -q
-
-# 4. Launch the app
-streamlit run streamlit_app.py
 ```
 
 ---
