@@ -49,7 +49,6 @@ european-option-pricer/
 │
 ├── streamlit_app.py              # Streamlit UI
 ├── requirements.txt
-├── pytest.ini
 └── README.md
 ```
 
